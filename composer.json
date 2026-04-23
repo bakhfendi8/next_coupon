@@ -11,7 +11,8 @@
         "laravel/framework": "^12.0",
         "laravel/horizon": "^5.45",
         "laravel/tinker": "^2.10.1",
-        "maiden-voyage-software/blade-emojis": "^0.1.5"
+        "maiden-voyage-software/blade-emojis": "^0.1.5",
+        "predis/predis": "^3.4"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

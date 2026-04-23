@@ -6,153 +6,101 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Horizon Name
-    |--------------------------------------------------------------------------
-    |
-    | This name appears in notifications and in the Horizon UI. Unique names
-    | can be useful while running multiple instances of Horizon within an
-    | application, allowing you to identify the Horizon you're viewing.
-    |
-    */
-
-    'name' => env('HORIZON_NAME'),
-
-    /*
-    |--------------------------------------------------------------------------
     | Horizon Domain
     |--------------------------------------------------------------------------
-    |
-    | This is the subdomain where Horizon will be accessible from. If this
-    | setting is null, Horizon will reside under the same domain as the
-    | application. Otherwise, this value will serve as the subdomain.
-    |
+    | Leave null to serve Horizon on the same domain as your app.
+    | Set to e.g. "horizon.yourdomain.com" for a dedicated subdomain.
     */
 
-    'domain' => env('HORIZON_DOMAIN'),
+    'domain' => env('HORIZON_DOMAIN', null),
 
     /*
     |--------------------------------------------------------------------------
     | Horizon Path
     |--------------------------------------------------------------------------
-    |
-    | This is the URI path where Horizon will be accessible from. Feel free
-    | to change this path to anything you like. Note that the URI will not
-    | affect the paths of its internal API that aren't exposed to users.
-    |
+    | The URI where Horizon's dashboard is accessible.
+    | Dashboard URL: http://localhost:8000/horizon
     */
 
     'path' => env('HORIZON_PATH', 'horizon'),
 
     /*
     |--------------------------------------------------------------------------
-    | Horizon Redis Connection
+    | Redis Connection
     |--------------------------------------------------------------------------
-    |
-    | This is the name of the Redis connection where Horizon will store the
-    | meta information required for it to function. It includes the list
-    | of supervisors, failed jobs, job metrics, and other information.
-    |
+    | Must match a connection defined in config/database.php under 'redis'.
+    | Default Laravel setup uses 'default' — no changes needed.
     */
 
     'use' => 'default',
 
     /*
     |--------------------------------------------------------------------------
-    | Horizon Redis Prefix
+    | Horizon Redis Key Prefix
     |--------------------------------------------------------------------------
-    |
-    | This prefix will be used when storing all Horizon data in Redis. You
-    | may modify the prefix when you are running multiple installations
-    | of Horizon on the same server so that they don't have problems.
-    |
+    | All Horizon keys in Redis are prefixed with this value.
+    | Useful when sharing a Redis instance across multiple projects.
     */
 
     'prefix' => env(
         'HORIZON_PREFIX',
-        Str::slug(env('APP_NAME', 'laravel'), '_').'_horizon:'
+        Str::slug(env('APP_NAME', 'laravel'), '_') . '_horizon:'
     ),
 
     /*
     |--------------------------------------------------------------------------
-    | Horizon Route Middleware
+    | Horizon Redis Blocking
     |--------------------------------------------------------------------------
-    |
-    | These middleware will get attached onto each Horizon route, giving you
-    | the chance to add your own middleware to this list or change any of
-    | the existing middleware. Or, you can simply stick with this list.
-    |
-    */
-
-    'middleware' => ['web'],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Queue Wait Time Thresholds
-    |--------------------------------------------------------------------------
-    |
-    | This option allows you to configure when the LongWaitDetected event
-    | will be fired. Every connection / queue combination may have its
-    | own, unique threshold (in seconds) before this event is fired.
-    |
+    | How long (seconds) a worker blocks on Redis BLPOP waiting for jobs.
+    | Lower = more responsive, higher CPU. Higher = more efficient, more latency.
     */
 
     'waits' => [
-        'redis:default' => 60,
+        'redis:high'    => 3,
+        'redis:default' => 5,
+        'redis:low'     => 10,
     ],
 
     /*
     |--------------------------------------------------------------------------
-    | Job Trimming Times
+    | Job Record Retention
     |--------------------------------------------------------------------------
-    |
-    | Here you can configure for how long (in minutes) you desire Horizon to
-    | persist the recent and failed jobs. Typically, recent jobs are kept
-    | for one hour while all failed jobs are stored for an entire week.
-    |
+    | How long (minutes) Horizon keeps job records in Redis.
+    | Failed jobs are kept longer for debugging and manual retry.
     */
 
     'trim' => [
-        'recent' => 60,
-        'pending' => 60,
-        'completed' => 60,
-        'recent_failed' => 10080,
-        'failed' => 10080,
-        'monitored' => 10080,
+        'recent'        => 60,      // 1 hour
+        'pending'       => 60,
+        'completed'     => 60,
+        'recent_failed' => 10080,   // 7 days
+        'failed'        => 10080,
+        'monitored'     => 10080,
     ],
 
     /*
     |--------------------------------------------------------------------------
     | Silenced Jobs
     |--------------------------------------------------------------------------
-    |
-    | Silencing a job will instruct Horizon to not place the job in the list
-    | of completed jobs within the Horizon dashboard. This setting may be
-    | used to fully remove any noisy jobs from the completed jobs list.
-    |
+    | These jobs are processed normally but hidden from the dashboard UI.
+    | RecordCouponEventJob runs constantly — hiding it reduces noise.
     */
 
     'silenced' => [
-        // App\Jobs\ExampleJob::class,
-    ],
-
-    'silenced_tags' => [
-        // 'notifications',
+        \App\Jobs\RecordCouponEventJob::class,
+        \App\Jobs\CleanExpiredReservationsJob::class,
     ],
 
     /*
     |--------------------------------------------------------------------------
-    | Metrics
+    | Metrics Snapshots
     |--------------------------------------------------------------------------
-    |
-    | Here you can configure how many snapshots should be kept to display in
-    | the metrics graph. This will get used in combination with Horizon's
-    | `horizon:snapshot` schedule to define how long to retain metrics.
-    |
+    | How many hours of throughput/runtime metrics to retain.
     */
 
     'metrics' => [
         'trim_snapshots' => [
-            'job' => 24,
+            'job'   => 24,
             'queue' => 24,
         ],
     ],
@@ -161,94 +109,149 @@ return [
     |--------------------------------------------------------------------------
     | Fast Termination
     |--------------------------------------------------------------------------
-    |
-    | When this option is enabled, Horizon's "terminate" command will not
-    | wait on all of the workers to terminate unless the --wait option
-    | is provided. Fast termination can shorten deployment delay by
-    | allowing a new instance of Horizon to start while the last
-    | instance will continue to terminate each of its workers.
-    |
+    | false = wait for the current job to finish before stopping worker.
+    | Keep false — ConsumeCouponJob holds a DB transaction.
     */
 
     'fast_termination' => false,
 
     /*
     |--------------------------------------------------------------------------
-    | Memory Limit (MB)
+    | Memory Limit
     |--------------------------------------------------------------------------
-    |
-    | This value describes the maximum amount of memory the Horizon master
-    | supervisor may consume before it is terminated and restarted. For
-    | configuring these limits on your workers, see the next section.
-    |
+    | Workers restart automatically if they exceed this limit (MB).
     */
 
-    'memory_limit' => 64,
+    'memory_limit' => 128,
 
     /*
     |--------------------------------------------------------------------------
-    | Queue Worker Configuration
+    | Queue Worker Supervisors
     |--------------------------------------------------------------------------
     |
-    | Here you may define the queue worker settings used by your application
-    | in all environments. These supervisors and settings handle all your
-    | queued jobs and will be provisioned by Horizon during deployment.
+    | Three supervisors — one per queue tier.
+    | Each supervisor manages its own worker pool independently.
+    | This prevents low-priority analytics jobs from starving validation.
+    |
+    | Supervisor overview:
+    |
+    |  coupon-high     queue: high    → ValidateCouponJob
+    |  coupon-default  queue: default → ConsumeCouponJob, ReleaseCouponJob,
+    |                                   UpdateCartJob
+    |  coupon-low      queue: low     → RecordCouponEventJob,
+    |                                   CleanExpiredReservationsJob
+    |
+    | Key settings explained:
+    |   balance              auto   = scale workers based on queue metrics
+    |                        simple = fixed worker count, no scaling
+    |                        false  = all processes on single supervisor
+    |   autoScalingStrategy  time   = scale on how long jobs wait
+    |                        size   = scale on queue depth
+    |   minProcesses         always keep this many workers alive
+    |   maxProcesses         never exceed this many workers
+    |   balanceMaxShift      max workers to add/remove per scaling cycle
+    |   balanceCooldown      seconds to wait between scaling decisions
+    |   sleep                seconds to wait when queue is empty
+    |   timeout              kill job if it runs longer than this (seconds)
     |
     */
-
-    'defaults' => [
-        'supervisor-1' => [
-            'connection' => 'redis',
-            'queue' => ['default'],
-            'balance' => 'auto',
-            'autoScalingStrategy' => 'time',
-            'maxProcesses' => 1,
-            'maxTime' => 0,
-            'maxJobs' => 0,
-            'memory' => 128,
-            'tries' => 1,
-            'timeout' => 60,
-            'nice' => 0,
-        ],
-    ],
 
     'environments' => [
+
+        // ── Production ────────────────────────────────────────────────────────
         'production' => [
-            'supervisor-1' => [
-                'maxProcesses' => 10,
-                'balanceMaxShift' => 1,
-                'balanceCooldown' => 3,
-            ],
-        ],
 
-        'local' => [
-            'supervisor-1' => [
+            // Tier 1: High priority — user is actively waiting
+            'coupon-high' => [
+                'connection'          => 'redis',
+                'queue'               => ['high'],
+                'balance'             => 'auto',
+                'autoScalingStrategy' => 'time',
+                'minProcesses'        => 2,
+                'maxProcesses'        => 20,
+                'balanceMaxShift'     => 5,
+                'balanceCooldown'     => 3,
+                'tries'               => 3,
+                'timeout'             => 30,
+                'memory'              => 128,
+                'sleep'               => 1,
+                'force'               => false,
+            ],
+
+            // Tier 2: Default — cart, consume, release
+            'coupon-default' => [
+                'connection'          => 'redis',
+                'queue'               => ['default'],
+                'balance'             => 'auto',
+                'autoScalingStrategy' => 'size',
+                'minProcesses'        => 2,
+                'maxProcesses'        => 10,
+                'balanceMaxShift'     => 3,
+                'balanceCooldown'     => 5,
+                'tries'               => 5,
+                'timeout'             => 60,
+                'memory'              => 128,
+                'sleep'               => 2,
+                'force'               => false,
+            ],
+
+            // Tier 3: Low priority — analytics and cleanup
+            'coupon-low' => [
+                'connection'   => 'redis',
+                'queue'        => ['low'],
+                'balance'      => 'simple',
+                'minProcesses' => 1,
                 'maxProcesses' => 3,
+                'tries'        => 5,
+                'timeout'      => 60,
+                'memory'       => 64,
+                'sleep'        => 5,
+                'force'        => false,
             ],
+
         ],
+
+        // ── Staging ───────────────────────────────────────────────────────────
+        'staging' => [
+
+            'coupon-staging' => [
+                'connection'   => 'redis',
+                'queue'        => ['high', 'default', 'low'],
+                'balance'      => 'simple',
+                'minProcesses' => 1,
+                'maxProcesses' => 5,
+                'tries'        => 3,
+                'timeout'      => 60,
+                'memory'       => 128,
+                'sleep'        => 3,
+                'force'        => false,
+            ],
+
+        ],
+
+        // ── Local (Windows/XAMPP) ─────────────────────────────────────────────
+        // Note: php artisan horizon does NOT work on Windows due to missing
+        // ext-pcntl and ext-posix extensions.
+        // Use this instead:
+        //   php artisan queue:work redis --queue=high,default,low
+        //
+        // The 'local' config below is kept for reference when running on Linux/Mac.
+        'local' => [
+
+            'coupon-local' => [
+                'connection'   => 'redis',
+                'queue'        => ['high', 'default', 'low'],
+                'balance'      => 'false',
+                'processes'    => 3,
+                'tries'        => 1,
+                'timeout'      => 60,
+                'memory'       => 256,
+                'sleep'        => 3,
+                'force'        => false,
+            ],
+
+        ],
+
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | File Watcher Configuration
-    |--------------------------------------------------------------------------
-    |
-    | The following list of directories and files will be watched when using
-    | the `horizon:listen` command. Whenever any directories or files are
-    | changed, Horizon will automatically restart to apply all changes.
-    |
-    */
-
-    'watch' => [
-        'app',
-        'bootstrap',
-        'config/**/*.php',
-        'database/**/*.php',
-        'public/**/*.php',
-        'resources/**/*.php',
-        'routes',
-        'composer.lock',
-        'composer.json',
-        '.env',
-    ],
 ];

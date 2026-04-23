@@ -92,31 +92,30 @@
                     @endif
                 </div>
  
-      {{-- Product info --}}
-      <div class="p-5">
-        <p class="font-mono text-[10px] text-ink-3 uppercase tracking-widest mb-1">
-          {{ $p['category'] }}
-        </p>
-        <p class="font-medium text-sm leading-snug mb-3">{{ $p['name'] }}</p>
- 
-        <div class="flex items-center justify-between">
-          <span class="font-mono font-medium text-sm">RM {{ $p['price'] }}.00</span>
- 
-          <form method="POST" action="{{ route('cart.add') }}">
-            @csrf
-            <input type="hidden" name="product"  value="{{ $p['name'] }}">
-            <input type="hidden" name="price"    value="{{ $p['price'] }}">
-            <input type="hidden" name="category" value="{{ $p['category'] }}">
-            <button type="submit"
-              class="flex items-center gap-1.5 text-xs bg-ink text-paper
-                     px-3 py-1.5 rounded-lg hover:bg-ink/85 transition-colors font-medium">
-              <x-heroicon-o-plus class="w-3.5 h-3.5" />
-              Add to cart
-            </button>
-          </form>
-        </div>
-      </div>
-    </div>
+                {{-- Product info --}}
+                <div class="p-5">
+                    <p class="font-mono text-[10px] text-ink-3 uppercase tracking-widest mb-1">
+                        {{ $p['category'] }}
+                    </p>
+                    <p class="font-medium text-sm leading-snug mb-3">{{ $p['name'] }}</p>
+    
+                    <div class="flex items-center justify-between">
+                        <span class="font-mono font-medium text-sm">RM {{ $p['price'] }}.00</span>
+    
+                        <form method="POST" action="{{ route('cart.add') }}">
+                            @csrf
+                            <input type="hidden" name="product" value="{{ $p['name'] }}">
+                            <input type="hidden" name="price" value="{{ $p['price'] }}">
+                            <input type="hidden" name="category" value="{{ $p['category'] }}">
+                            <button type="submit" class="flex items-center gap-1.5 text-xs bg-ink text-paper
+                                px-3 py-1.5 rounded-lg hover:bg-ink/85 transition-colors font-medium">
+                                <x-heroicon-o-plus class="w-3.5 h-3.5" />
+                                Add to cart
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
         @endforeach
 
     </div>

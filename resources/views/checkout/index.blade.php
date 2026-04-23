@@ -180,6 +180,7 @@ const CouponUI = {
 
     async apply() {
         const code = document.getElementById('couponInput').value.trim().toUpperCase();
+        console.log(code);
         if (!code) { window.toast('Enter a coupon code first.', 'error'); return; }
 
         this._setLoading(true);
@@ -191,6 +192,7 @@ const CouponUI = {
                 coupon_code: code,
                 cart: getCart(),
             });
+            console.log(res);
             couponKey = res.coupon_key;
             document.getElementById('couponKeyInput').value = couponKey;
             logEvent('accepted', `202 accepted — polling for result`);
@@ -337,5 +339,3 @@ document.getElementById('checkoutForm').addEventListener('submit', function(e) {
 });
 </script>
 @endpush
-
-@endsection

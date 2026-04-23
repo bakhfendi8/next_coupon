@@ -54,7 +54,7 @@ app/
 ├── Services/
 │   ├── CouponRuleEngine.php      # Evaluates all 7 coupon rules
 │   ├── CouponReservationService.php  # Atomic Redis reserve/release
-│   └── FailedJobHandler.php     # Central failed job recovery
+│   └── FailedJobHandler.php      # Central failed job recovery
 │
 └── Models/
     ├── Coupon.php
@@ -152,34 +152,173 @@ Each coupon is configured through a versioned `CouponSetting` record. The rule e
 
 ### Option A — Docker (recommended)
 
-Make sure Docker Desktop is running first.
+> **Requirements:** Docker Desktop installed and running on your machine.
+
+#### Important notes before you start
+
+- Stop XAMPP's MySQL before running Docker — both use port 3306 and will conflict. Docker maps MySQL to port 3307 on your host to reduce this, but stopping XAMPP MySQL is safer.
+- The `app` container does not have Node.js. Run `npm` commands on your local machine, not inside Docker.
+- Always set `APP_ENV=production` when using Docker — otherwise Laravel tries to connect to a Vite dev server that isn't running inside the container.
+
+#### Step by step
 
 ```bash
 # 1. Clone the project
 git clone <your-repo-url>
 cd next_coupon
 
-# 2. Set up environment
+# 2. Copy the Docker environment file
 cp .env.docker .env
 
-# 3. Start all containers
+# 3. Set APP_ENV to production — critical for assets to load correctly
+# Open .env and set:
+# APP_ENV=production
+# APP_DEBUG=false
+
+# 4. Build frontend assets on your LOCAL machine (not inside Docker)
+npm install
+npm run build
+
+# 5. Delete the Vite hot file if it exists — it will break asset loading
+# Windows PowerShell:
+if (Test-Path public/hot) { Remove-Item public/hot }
+
+# 6. Add vendor volume to avoid Composer conflicts (see docker-compose.yml note below)
+# Make sure your .dockerignore contains: vendor/
+
+# 7. Build and start all containers
+docker compose build --no-cache
 docker compose up -d
 
-# 4. Generate app key
+# 8. Check all containers are running
+docker compose ps
+
+# 9. Generate app key
 docker compose exec app php artisan key:generate
 
-# 5. Run migrations
+# 10. Run migrations
 docker compose exec app php artisan migrate --force
 
-# 6. Seed test coupons
+# 11. Seed test coupons
 docker compose exec app php artisan db:seed --force
 
-# 7. Build frontend assets
-docker compose exec app npm install
-docker compose exec app npm run build
+# 12. Clear and cache config
+docker compose exec app php artisan config:clear
+docker compose exec app php artisan config:cache
 ```
 
 Open `http://localhost:8000` in your browser.
+
+---
+
+#### Docker troubleshooting
+
+**MySQL container shows Error or Unhealthy**
+
+This usually means a port conflict with XAMPP or a stale data volume.
+
+```bash
+# Stop XAMPP MySQL first, then:
+docker compose down -v   # -v removes volumes — clears stale MySQL data
+docker compose up -d
+```
+
+**Assets not loading — ERR_ADDRESS_INVALID on port 5173**
+
+Laravel is trying to connect to the Vite dev server. Fix:
+
+1. Set `APP_ENV=production` in `.env`
+2. Delete `public/hot` if it exists
+3. Run `npm run build` on your local machine
+4. Clear config: `docker compose exec app php artisan config:clear`
+5. Hard refresh: `Ctrl + Shift + R`
+
+**Composer install fails — "uncommitted changes in vendor/"**
+
+Your local `vendor/` folder is conflicting with Docker's install. Fix:
+
+Add `vendor/` to `.dockerignore`, then add a named volume for vendor in `docker-compose.yml`:
+
+```yaml
+# Under the app service volumes:
+volumes:
+  - .:/var/www
+  - vendor_data:/var/www/vendor   # add this
+
+# Under the volumes section at the bottom:
+volumes:
+  coupon_mysql_data:
+  coupon_redis_data:
+  vendor_data:                    # add this
+```
+
+Then rebuild:
+
+```bash
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+```
+
+**npm not found inside container**
+
+The `app` container is PHP-only. Always run npm on your local machine:
+
+```bash
+# Run this on your machine, not inside Docker
+npm install
+npm run build
+```
+
+---
+
+#### Docker services
+
+| Container | Purpose | Port |
+|---|---|---|
+| `coupon_app` | PHP-FPM — runs Laravel | internal |
+| `coupon_nginx` | Web server | 8000 |
+| `coupon_mysql` | MySQL database | 3307 (host) |
+| `coupon_redis` | Redis | 6379 |
+| `coupon_worker_high` | Processes `high` queue | — |
+| `coupon_worker_default` | Processes `default` queue | — |
+| `coupon_worker_low` | Processes `low` queue | — |
+| `coupon_scheduler` | Runs `schedule:run` every minute | — |
+
+---
+
+#### Docker daily commands
+
+```bash
+# Start all containers
+docker compose up -d
+
+# Stop all containers
+docker compose down
+
+# View all logs live
+docker compose logs -f
+
+# View Laravel log only
+docker compose exec app tail -f storage/logs/laravel.log
+
+# Run any artisan command
+docker compose exec app php artisan <command>
+
+# Access MySQL shell
+docker compose exec mysql mysql -u coupon_user -psecret coupon_system
+
+# Access Redis CLI
+docker compose exec redis redis-cli
+
+# Restart a single container
+docker compose restart worker_high
+
+# Rebuild from scratch (clears everything)
+docker compose down -v
+docker compose build --no-cache
+docker compose up -d
+```
 
 ---
 
@@ -188,28 +327,46 @@ Open `http://localhost:8000` in your browser.
 Requirements: PHP 8.2, MySQL, Redis, Composer, Node.js
 
 ```bash
-# 1. Install dependencies
+# 1. Install PHP dependencies
 composer install --ignore-platform-reqs
-npm install
 
-# 2. Set up environment
+# 2. Install Node dependencies and build assets
+npm install
+npm run build
+
+# 3. Set up environment
 cp .env.example .env
 php artisan key:generate
 
-# 3. Update .env with your database and Redis settings
-# DB_HOST=127.0.0.1, REDIS_CLIENT=predis, QUEUE_CONNECTION=redis
+# 4. Update .env:
+# DB_HOST=127.0.0.1
+# REDIS_HOST=127.0.0.1
+# REDIS_CLIENT=predis
+# QUEUE_CONNECTION=redis
 
-# 4. Run migrations and seed
+# 5. Install predis (required on Windows — no phpredis extension)
+composer require predis/predis --ignore-platform-reqs
+
+# 6. Run migrations and seed
 php artisan migrate
 php artisan db:seed
 
-# 5. Start everything (needs 3 terminals)
-php artisan serve           # terminal 1 — web server
-npm run dev                 # terminal 2 — Tailwind CSS
-php artisan queue:work redis --queue=high,default,low  # terminal 3 — queue
+# 7. Start Redis (download from github.com/microsoftarchive/redis/releases)
+redis-server
+
+# 8. Start everything — needs 3 separate terminals
+php artisan serve                                              # terminal 1
+npm run dev                                                    # terminal 2
+php artisan queue:work redis --queue=high,default,low          # terminal 3
 ```
 
 Open `http://localhost:8000` in your browser.
+
+#### XAMPP notes
+
+- Horizon (`php artisan horizon`) does not work on Windows — use `queue:work` instead.
+- Always use `REDIS_CLIENT=predis` on Windows. The `phpredis` extension is Linux-only.
+- If Redis shows "connection refused", make sure `redis-server` is running. Download from the Microsoft archive on GitHub.
 
 ---
 
@@ -245,38 +402,15 @@ A full Postman collection is included at `CouponSystem.postman_collection.json`.
 
 ---
 
-## Docker Services
-
-```bash
-# Start all services
-docker compose up -d
-
-# Check status
-docker compose ps
-
-# View logs
-docker compose logs -f
-
-# Run artisan commands
-docker compose exec app php artisan <command>
-
-# Access MySQL
-docker compose exec mysql mysql -u coupon_user -psecret coupon_system
-
-# Access Redis CLI
-docker compose exec redis redis-cli
-
-# Stop everything
-docker compose down
-```
-
----
-
 ## Environment Variables
 
 Key variables to configure in `.env`:
 
 ```env
+# App
+APP_ENV=production     # use 'production' for Docker, 'local' for XAMPP dev
+APP_DEBUG=false        # set false for Docker
+
 # Database
 DB_HOST=mysql          # use 'mysql' for Docker, '127.0.0.1' for XAMPP
 DB_DATABASE=coupon_system
@@ -285,10 +419,10 @@ DB_PASSWORD=secret
 
 # Redis
 REDIS_HOST=redis       # use 'redis' for Docker, '127.0.0.1' for XAMPP
-REDIS_CLIENT=predis    # always use predis on Windows
+REDIS_CLIENT=predis    # always predis — works on both Windows and Docker
 QUEUE_CONNECTION=redis
 
-# Horizon dashboard alerts (optional)
+# Horizon (optional)
 HORIZON_MAIL_TO=
 HORIZON_SLACK_WEBHOOK=
 ```
@@ -331,9 +465,6 @@ php artisan queue:failed
 # Retry all failed jobs
 php artisan queue:retry all
 
-# Release stuck reservations manually
-php artisan coupons:release-stuck
-
 # Clear all caches
 php artisan cache:clear && php artisan config:clear
 
@@ -341,11 +472,14 @@ php artisan cache:clear && php artisan config:clear
 php artisan horizon:status
 ```
 
+For Docker, prefix all artisan commands with `docker compose exec app`.
+
 ---
 
 ## Notes
 
-- This system has no login/authentication — it uses a session-based guest ID instead. Add Laravel Sanctum or Breeze if you need user accounts.
-- The `ext-pcntl` and `ext-posix` extensions required by Horizon are Linux-only. On Windows, use `php artisan queue:work` instead of `php artisan horizon`.
-- Always use `php artisan horizon:terminate` (not `horizon:kill`) when deploying — it waits for in-flight jobs to finish before stopping.
-
+- No login/authentication — uses a session-based guest ID. Add Laravel Sanctum or Breeze if you need user accounts.
+- `ext-pcntl` and `ext-posix` are Linux-only. On Windows/XAMPP, use `queue:work` instead of `horizon`.
+- Always run `npm run build` on your local machine before starting Docker — the `app` container has no Node.js.
+- Delete `public/hot` whenever switching from `npm run dev` to `npm run build` — the hot file tells Laravel to use the Vite dev server.
+- Always use `php artisan horizon:terminate` (not `horizon:kill`) when deploying — it waits for in-flight jobs to finish.
